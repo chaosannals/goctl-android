@@ -19,8 +19,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util/stringx"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 	"github.com/zeromicro/goctl-android/template"
 )
 
@@ -78,7 +79,7 @@ func (b *Bean) GetMember(name string) *Member {
 func generateBean(dir string, bean Bean) error {
 	filename := filepath.Join(dir, bean.Name.ToCamel()+".java")
 	base := filepath.Dir(filename)
-	err := util.MkdirIfNotExist(base)
+	err := pathx.MkdirIfNotExist(base)
 	if err != nil {
 		return err
 	}

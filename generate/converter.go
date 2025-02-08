@@ -15,22 +15,22 @@
 package generate
 
 import (
-	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
-	"github.com/tal-tech/go-zero/core/collection"
-	sx "github.com/tal-tech/go-zero/core/stringx"
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
-	annotation "github.com/tal-tech/go-zero/tools/goctl/api/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util/stringx"
+	"github.com/samber/lo"
+	"github.com/zeromicro/go-zero/core/collection"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 )
 
 type (
 	Plugin struct {
-		Api           *spec.ApiSpec
+		Api           *spec.ApiSpec `json:"-"`
+		ApiFilePath   string
 		Style         string
 		Dir           string
 		ParentPackage string
@@ -87,7 +87,7 @@ func (p *Plugin) Convert() (*Spec, error) {
 	imports, routes := getRoute(list, beans)
 	ret.Service = IService{
 		ParentPackage: p.ParentPackage,
-		Import:        strings.Join(trimList(imports), util.NL),
+		Import:        strings.Join(trimList(imports), pathx.NL),
 		Routes:        routes,
 	}
 
@@ -123,12 +123,9 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 	var imports []string
 
 	for _, each := range in {
-		handlerName, ok := annotation.GetAnnotationValue(each.Annotations, "server", "handler")
-		if !ok {
-			continue
-		}
+		handlerName := each.Handler
 
-		doc, _ := annotation.GetAnnotationValue(each.Annotations, "doc", "summary")
+		doc := each.AtDoc.Properties["summary"]
 		if len(doc) > 0 {
 			doc = strings.ReplaceAll(doc, "'", "")
 			doc = strings.ReplaceAll(doc, "`", "")
@@ -137,7 +134,10 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 		}
 
 		path, ids, idsExpr := parsePath(each.Path)
-		bean := m[strings.ToLower(each.RequestType.Name)]
+		var bean *Bean
+		if each.RequestType != nil {
+			bean = m[strings.ToLower(each.RequestType.Name())]
+		}
 
 		var queryId []string
 		var queryExpr, pathIdExpr string
@@ -158,15 +158,24 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 			}
 		}
 
+		requestBeanName := ""
+		if each.RequestType != nil {
+			requestBeanName = stringx.From(each.RequestType.Name()).Title()
+		}
+		responseBeanName := ""
+		if each.ResponseType != nil {
+			responseBeanName = stringx.From(each.ResponseType.Name()).Title()
+		}
+
 		list = append(list, &Route{
 			MethodName:       stringx.From(handlerName).Untitle(),
 			Method:           strings.ToUpper(each.Method),
 			Path:             path,
-			RequestBeanName:  stringx.From(each.RequestType.Name).Title(),
-			ResponseBeanName: stringx.From(each.ResponseType.Name).Title(),
-			HasRequest:       len(each.RequestType.Name) > 0,
+			RequestBeanName:  requestBeanName,
+			ResponseBeanName: responseBeanName,
+			HasRequest:       each.RequestType != nil,
 			ShowRequestBody:  showRequestBody,
-			HasResponse:      len(each.ResponseType.Name) > 0,
+			HasResponse:      each.ResponseType != nil,
 			HavePath:         len(ids) > 0,
 			PathId:           strings.Join(idsExpr, ","),
 			PathIdExpr:       pathIdExpr,
@@ -215,10 +224,15 @@ func toRetrofitPath(ids []string, bean *Bean) string {
 func getBean(parentPackage string, tp spec.Type) ([]*Bean, error) {
 	var bean Bean
 	var list []*Bean
-	bean.Name = stringx.From(tp.Name)
+	bean.Name = stringx.From(tp.Name())
 	bean.ParentPackage = parentPackage
 
-	for _, m := range tp.Members {
+	definedType, ok := tp.(spec.DefineStruct)
+	if !ok {
+		return nil, fmt.Errorf("type %s not supported", tp.Name())
+	}
+
+	for _, m := range definedType.Members {
 		externalBeans, err := getBeans(parentPackage, m, &bean)
 		if err != nil {
 			return nil, err
@@ -230,7 +244,7 @@ func getBean(parentPackage string, tp spec.Type) ([]*Bean, error) {
 }
 
 func getBeans(parentPackage string, member spec.Member, bean *Bean) ([]*Bean, error) {
-	beans, imports, typeName, err := getTypeName(parentPackage, member.Expr, member.Type == "interface{}")
+	beans, imports, typeName, err := getTypeName(parentPackage, member.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -247,17 +261,19 @@ func getBeans(parentPackage string, member spec.Member, bean *Bean) ([]*Bean, er
 		bean.FormTag = append(bean.FormTag, name)
 	}
 
-	bean.Import = strings.Join(imports, util.NL)
-	comment := strings.Join(member.Comments, " ")
-	doc := strings.Join(member.Docs, util.NL)
+	bean.Import = strings.Join(imports, pathx.NL)
+	comment := strings.Join(member.Type.Comments(), " ")
+	doc := strings.Join(member.Docs, pathx.NL)
 	if len(comment) > 0 {
 		comment = "// " + comment
 	}
 	if len(doc) > 0 {
 		doc = "// " + doc
 	}
+
 	bean.Members = append(bean.Members, &Member{
-		Name:     stringx.From(name),
+		// Name:     stringx.From(name),
+		Name:     stringx.From(lo.CamelCase(member.Name)),
 		TypeName: typeName,
 		Comment:  comment,
 		Doc:      doc,
@@ -266,17 +282,15 @@ func getBeans(parentPackage string, member spec.Member, bean *Bean) ([]*Bean, er
 	return beans, nil
 }
 
-func getTypeName(parentPackage string, expr interface{}, inter bool) ([]*Bean, []string, string, error) {
+func getTypeName(parentPackage string, expr interface{}) ([]*Bean, []string, string, error) {
 	set := collection.NewSet()
 	switch v := expr.(type) {
-	case map[string]interface{}:
-		return getTypeName(parentPackage, unJsonMarshal(expr, inter), false)
-	case spec.BasicType:
-		imp, typeName := toJavaType(parentPackage, v.Name)
+	case spec.PrimitiveType:
+		imp, typeName := toJavaType(parentPackage, v.Name())
 		set.AddStr(imp)
 		return nil, set.KeysStr(), typeName, nil
 	case spec.PointerType:
-		return getTypeName(parentPackage, v.Star, false)
+		return getTypeName(parentPackage, v.Type)
 	case spec.MapType:
 		set.AddStr("import java.util.HashMap;")
 		beans, imports, typeName, err := toJavaMap(parentPackage, v)
@@ -303,65 +317,18 @@ func getTypeName(parentPackage string, expr interface{}, inter bool) ([]*Bean, [
 			return nil, nil, "", err
 		}
 
-		imp, typeName := toJavaType(parentPackage, v.Name)
+		imp, typeName := toJavaType(parentPackage, v.Name())
 		set.AddStr(imp)
 		return beans, set.KeysStr(), typeName, nil
 	case Type:
 		return nil, nil, v.Name, nil
 	default:
-		return nil, nil, "", fmt.Errorf("unsupported type: %v", v)
+		return nil, nil, "", fmt.Errorf("unsupported type(%s): %v", reflect.TypeOf(expr).Name(), v)
 	}
-}
-
-func unJsonMarshal(expr interface{}, inter bool) interface{} {
-	m := expr.(map[string]interface{})
-	data, err := json.Marshal(expr)
-	if err != nil {
-		return expr
-	}
-
-	var basicType spec.BasicType
-	var pointerType spec.PointerType
-	var mapType spec.MapType
-	var arrayType spec.ArrayType
-	var interfaceType spec.InterfaceType
-	var tpType Type
-
-	var keys []string
-	for key := range m {
-		keys = append(keys, key)
-	}
-
-	if sx.Contains(keys, "StringExpr") && sx.Contains(keys, "Name") && len(keys) == 2 {
-		_ = json.Unmarshal(data, &basicType)
-		return basicType
-	}
-	if sx.Contains(keys, "StringExpr") && sx.Contains(keys, "Star") && len(keys) == 2 {
-		_ = json.Unmarshal(data, &pointerType)
-		return pointerType
-	}
-	if sx.Contains(keys, "StringExpr") && sx.Contains(keys, "Key") && sx.Contains(keys, "Value") && len(keys) == 3 {
-		_ = json.Unmarshal(data, &mapType)
-		return mapType
-	}
-	if sx.Contains(keys, "StringExpr") && sx.Contains(keys, "ArrayType") && len(keys) == 2 {
-		_ = json.Unmarshal(data, &arrayType)
-		return arrayType
-	}
-	if sx.Contains(keys, "StringExpr") && len(keys) == 1 {
-		if inter {
-			_ = json.Unmarshal(data, &interfaceType)
-			return interfaceType
-		}
-		tpType.Name = fmt.Sprintf("%v", m[keys[0]])
-		return tpType
-	}
-
-	return expr
 }
 
 func toJavaArray(parentPackage string, a spec.ArrayType) ([]*Bean, []string, string, error) {
-	beans, imports, typeName, err := getTypeName(parentPackage, a.ArrayType, false)
+	beans, imports, typeName, err := getTypeName(parentPackage, a.Value)
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -370,7 +337,7 @@ func toJavaArray(parentPackage string, a spec.ArrayType) ([]*Bean, []string, str
 }
 
 func toJavaMap(parentPackage string, m spec.MapType) ([]*Bean, []string, string, error) {
-	beans, imports, typeName, err := getTypeName(parentPackage, m.Value, false)
+	beans, imports, typeName, err := getTypeName(parentPackage, m.Value)
 	if err != nil {
 		return nil, nil, "", err
 	}

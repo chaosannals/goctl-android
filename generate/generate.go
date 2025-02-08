@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/util/console"
+	"github.com/zeromicro/go-zero/tools/goctl/util/console"
 )
 
 func Do(in Plugin) error {

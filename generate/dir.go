@@ -17,7 +17,7 @@ package generate
 import (
 	"path/filepath"
 
-	"github.com/tal-tech/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
 const (
@@ -37,7 +37,7 @@ func mkDir(target string) (map[string]string, error) {
 			return nil, err
 		}
 
-		err = util.MkdirIfNotExist(abs)
+		err = pathx.MkdirIfNotExist(abs)
 		if err != nil {
 			return nil, err
 		}

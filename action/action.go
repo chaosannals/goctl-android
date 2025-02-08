@@ -16,16 +16,17 @@ package action
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/urfave/cli/v2"
+	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
 	"github.com/zeromicro/goctl-android/generate"
 )
 
 func Android(ctx *cli.Context) error {
 	pkg := ctx.String("package")
-	std, err := ioutil.ReadAll(os.Stdin)
+	std, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return err
 	}
@@ -36,6 +37,11 @@ func Android(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	api, err := parser.Parse(plugin.ApiFilePath)
+	if err != nil {
+		return err
+	}
+	plugin.Api = api
 
 	return generate.Do(plugin)
 }
