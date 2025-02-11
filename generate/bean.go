@@ -34,12 +34,15 @@ type (
 		PathTag       []string
 		FormTag       []string
 		JsonTag       []string
+		HeaderTag     []string
 	}
 	Member struct {
 		Name     stringx.String
+		Field    string
 		TypeName string
 		Comment  string
 		Doc      string
+		Tag      string
 	}
 )
 
@@ -65,6 +68,29 @@ func (b *Bean) GetQuery() string {
 		query = append(query, fmt.Sprintf(`@Query("%s") %s %s`, item, m.TypeName, m.Name.Untitle()))
 	}
 	return strings.Join(query, ", ")
+}
+
+func (b *Bean) GetHeaders() (string, string) {
+	var headers []string
+	var ids []string
+	for _, item := range b.HeaderTag {
+		m := b.GetMemberByFiled(item)
+		if m == nil {
+			continue
+		}
+		headers = append(headers, fmt.Sprintf(`@Header("%s") %s %s`, item, m.TypeName, m.Name.Untitle()))
+		ids = append(ids, fmt.Sprintf("req.get%s()", m.Name.ToCamel()))
+	}
+	return strings.Join(headers, ", "), strings.Join(ids, ",")
+}
+
+func (b *Bean) GetMemberByFiled(field string) *Member {
+	for _, item := range b.Members {
+		if item.Field == field {
+			return item
+		}
+	}
+	return nil
 }
 
 func (b *Bean) GetMember(name string) *Member {

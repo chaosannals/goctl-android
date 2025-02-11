@@ -1,8 +1,8 @@
 package {{.ParentPackage}}.service;
 
 {{.Import}}
-import com.alibaba.fastjson.JSON;
-import okhttp3.MediaType;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import okhttp3.RequestBody;
 import retrofit2.Call;
 import retrofit2.Callback;
@@ -10,34 +10,30 @@ import retrofit2.Retrofit;
 import retrofit2.converter.gson.GsonConverterFactory;
 
 public class Service {
-    private static final String MEDIA_TYPE_JSON = "application/json; charset=utf-8";
-    private static final String BASE_RUL = "http://localhost:8888/";// TODO replace to your host and delete this comment
-    private static Service instance;
-    private static IService service;
+    private final IService service;
 
-    private Service() {
+    public Service(String baseUrl) {
+        Gson gson = new GsonBuilder()
+                .excludeFieldsWithoutExposeAnnotation()
+                .setPrettyPrinting()
+                .create();
         Retrofit retrofit = new Retrofit.Builder()
-                .baseUrl(BASE_RUL)
-                .addConverterFactory(GsonConverterFactory.create())
+                .baseUrl(baseUrl)
+                .addConverterFactory(GsonConverterFactory.create(gson))
                 .build();
         service = retrofit.create(IService.class);
     }
 
-    public static Service getInstance() {
-        if (instance == null) {
-            instance = new Service();
-        }
-        return instance;
-    }
-
-    private RequestBody buildJSONBody(Object obj) {
-        String s = JSON.toJSONString(obj);
-        return RequestBody.create(s, MediaType.parse(MEDIA_TYPE_JSON));
-    }
 	{{range $index,$item := .Routes}}{{$item.Doc}}
-    public void {{$item.MethodName}}({{if $item.HasRequest}}{{$item.RequestBeanName}} in, {{end}}Callback{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} callback) {
-        Call{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} call = service.{{$item.MethodName}}({{if $item.HavePath}}{{$item.PathId}}{{end}}{{if $item.HaveQuery}}{{$item.QueryId}}{{end}}{{if $item.ShowRequestBody}}buildJSONBody(in){{end}});
+    public void {{$item.MethodName}}({{if $item.HasRequest}}{{$item.RequestBeanName}} req, {{end}}Callback{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} callback{{if not $item.ShowRequestBody}}, RequestBody body{{end}}) {
+        Call{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} call = service.{{$item.MethodName}}({{if $item.HaveHeaders}}{{$item.HeaderIdsExpr}}{{end}}{{if $item.HavePath}}{{$item.PathId}}{{end}}{{if $item.HaveQuery}}{{$item.QueryId}}{{end}}{{if $item.ShowRequestBody}}req{{else}}{{$item.BodyPrefix}}body{{end}});
         call.enqueue(callback);
     }
+    {{if not $item.ShowRequestBody}}
+    public void {{$item.MethodName}}({{if $item.HasRequest}}{{$item.RequestBeanName}} req, {{end}}Callback{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} callback) {
+        Call{{if $item.HasResponse}}<{{$item.ResponseBeanName}}>{{else}}<Void>{{end}} call = service.{{$item.MethodName}}({{if $item.HaveHeaders}}{{$item.HeaderIdsExpr}}{{end}}{{if $item.HavePath}}{{$item.PathId}}{{end}}{{if $item.HaveQuery}}{{$item.QueryId}}{{end}});
+        call.enqueue(callback);
+    }
+    {{end}}
 	{{end}}
 }

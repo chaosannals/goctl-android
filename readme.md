@@ -110,25 +110,27 @@ goctl-android是一款基于goctl的插件，用于生成java（android）端htt
 maven依赖
 ```xml
 <dependency>
-    <groupId>com.squareup.retrofit2</groupId>
-    <artifactId>retrofit</artifactId>
-    <version>2.9.0</version>
-</dependency>
-<dependency>
     <groupId>com.squareup.okhttp3</groupId>
     <artifactId>okhttp</artifactId>
-    <version>4.9.0</version>
+    <version>4.12.0</version>
 </dependency>
 <dependency>
-    <groupId>com.alibaba</groupId>
-    <artifactId>fastjson</artifactId>
-    <version>1.2.75</version>
+    <groupId>com.squareup.retrofit2</groupId>
+    <artifactId>retrofit</artifactId>
+    <version>2.11.0</version>
 </dependency>
 <dependency>
     <groupId>com.squareup.retrofit2</groupId>
     <artifactId>converter-gson</artifactId>
-    <version>2.9.0</version>
+    <version>2.11.0</version>
 </dependency>
+```
+
+gradle 依赖
+```gradle
+implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+implementation 'com.squareup.retrofit2:retrofit:2.11.0'
+implementation 'com.squareup.retrofit2:converter-gson:2.11.0'
 ```
 
 > 本插件是基于retrofit来实现http请求，因此会用到一些java依赖，gradle包管理形式自行处理。
@@ -139,7 +141,7 @@ public static void main(String[] args) {
 LoginReq loginReq = new LoginReq();
 loginReq.setUsername("zeromicro");
 loginReq.setPassword("111111");
-Service service = Service.getInstance();
+Service service = new Service("http://localhost");// 配置 baseUrl
 service.login(loginReq, new Callback<Void>() {
     public void onResponse(Call<Void> call, Response<Void> response) {
         System.out.println("login success");

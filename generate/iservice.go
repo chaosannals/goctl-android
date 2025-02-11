@@ -34,10 +34,14 @@ type (
 		ShowRequestBody  bool
 		HavePath         bool
 		HaveQuery        bool
+		HaveHeaders      bool
 		PathId           string
 		PathIdExpr       string
 		QueryId          string
 		QueryIdExpr      string
+		HeaderIdsExpr    string
+		HeadersExpr      string
+		BodyPrefix       string
 		Doc              string
 	}
 	IService struct {

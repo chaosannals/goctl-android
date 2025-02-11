@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/samber/lo"
 	"github.com/zeromicro/go-zero/core/collection"
 	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
 	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
@@ -59,6 +58,7 @@ func (p *Plugin) Convert() (*Spec, error) {
 		beans = make(map[string]*Bean)
 	)
 
+	// 遍历数据类型
 	for _, each := range p.Api.Types {
 		list, err := getBean(p.ParentPackage, each)
 		if err != nil {
@@ -69,22 +69,17 @@ func (p *Plugin) Convert() (*Spec, error) {
 			beans[bean.Name.Lower()] = bean
 		}
 	}
-	var r = make(map[string]spec.Route)
-	for _, each := range p.Api.Service.Routes() {
-		r[fmt.Sprintf("%v://%v", each.Method, each.Path)] = each
-	}
 
-	for _, each := range p.Api.Service.Groups {
-		for _, each := range each.Routes {
-			r[fmt.Sprintf("%v://%v", each.Method, each.Path)] = each
+	// 遍历路由
+	var r = make(map[string]spec.Route)
+	for _, g := range p.Api.Service.Groups {
+		prefix := g.GetAnnotation("prefix")
+		for _, route := range g.Routes {
+			r[fmt.Sprintf("%s%s", prefix, route.Path)] = route
 		}
 	}
-	var list []spec.Route
-	for _, item := range r {
-		list = append(list, item)
-	}
 
-	imports, routes := getRoute(list, beans)
+	imports, routes := getRoute(r, beans)
 	ret.Service = IService{
 		ParentPackage: p.ParentPackage,
 		Import:        strings.Join(trimList(imports), pathx.NL),
@@ -118,11 +113,11 @@ func trimList(list []string) []string {
 	return ret
 }
 
-func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
+func getRoute(in map[string]spec.Route, m map[string]*Bean) ([]string, []*Route) {
 	var list []*Route
 	var imports []string
 
-	for _, each := range in {
+	for urlPath, each := range in {
 		handlerName := each.Handler
 
 		doc := each.AtDoc.Properties["summary"]
@@ -133,19 +128,20 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 			doc = "// " + doc
 		}
 
-		path, ids, idsExpr := parsePath(each.Path)
+		path, ids, idsExpr := parsePath(urlPath)
 		var bean *Bean
 		if each.RequestType != nil {
 			bean = m[strings.ToLower(each.RequestType.Name())]
 		}
 
 		var queryId []string
-		var queryExpr, pathIdExpr string
+		var bodyPrefix string
+		var queryExpr, pathIdExpr, headersExpr, headerIdsExpr string
 		var showRequestBody bool
 		if bean != nil {
 			imports = append(imports, bean.Import)
 			for _, query := range bean.FormTag {
-				queryId = append(queryId, "in.get"+stringx.From(query).ToCamel()+"()")
+				queryId = append(queryId, fmt.Sprintf("in.get%s()", stringx.From(query).ToCamel()))
 			}
 			queryExpr = bean.GetQuery()
 			showRequestBody = len(bean.JsonTag) > 0
@@ -155,6 +151,14 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 			pathIdExpr = toRetrofitPath(ids, bean)
 			if len(queryId) > 0 {
 				pathIdExpr = pathIdExpr + ", "
+			}
+			headersExpr, headerIdsExpr = bean.GetHeaders()
+			if len(headersExpr) > 0 && (len(pathIdExpr) > 0 || len(queryId) > 0 || showRequestBody) {
+				headersExpr = headersExpr + ", "
+				headerIdsExpr = headerIdsExpr + ","
+			}
+			if !showRequestBody && (len(pathIdExpr) > 0 || len(queryId) > 0 || len(headersExpr) > 0) {
+				bodyPrefix = ", "
 			}
 		}
 
@@ -182,9 +186,14 @@ func getRoute(in []spec.Route, m map[string]*Bean) ([]string, []*Route) {
 			QueryId:          strings.Join(queryId, ","),
 			HaveQuery:        len(queryId) > 0,
 			QueryIdExpr:      queryExpr,
+			HaveHeaders:      len(headersExpr) > 0,
+			HeaderIdsExpr:    headerIdsExpr,
+			HeadersExpr:      headersExpr,
+			BodyPrefix:       bodyPrefix,
 			Doc:              doc,
 		})
 	}
+
 	return imports, list
 }
 
@@ -260,6 +269,9 @@ func getBeans(parentPackage string, member spec.Member, bean *Bean) ([]*Bean, er
 	if tag.IsForm() {
 		bean.FormTag = append(bean.FormTag, name)
 	}
+	if tag.IsHeader() {
+		bean.HeaderTag = append(bean.HeaderTag, name)
+	}
 
 	bean.Import = strings.Join(imports, pathx.NL)
 	comment := strings.Join(member.Type.Comments(), " ")
@@ -272,11 +284,12 @@ func getBeans(parentPackage string, member spec.Member, bean *Bean) ([]*Bean, er
 	}
 
 	bean.Members = append(bean.Members, &Member{
-		// Name:     stringx.From(name),
-		Name:     stringx.From(lo.CamelCase(member.Name)),
+		Name:     stringx.From(member.Name),
+		Field:    name,
 		TypeName: typeName,
 		Comment:  comment,
 		Doc:      doc,
+		Tag:      tag.tp,
 	})
 	beans = append(beans, bean)
 	return beans, nil
@@ -396,6 +409,10 @@ func (t *Tag) IsPath() bool {
 
 func (t *Tag) IsForm() bool {
 	return t.tp == "form"
+}
+
+func (t *Tag) IsHeader() bool {
+	return t.tp == "header"
 }
 
 func (t *Tag) GetTag() string {
