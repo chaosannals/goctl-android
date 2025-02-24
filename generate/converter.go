@@ -141,7 +141,7 @@ func getRoute(in map[string]spec.Route, m map[string]*Bean) ([]string, []*Route)
 		if bean != nil {
 			imports = append(imports, bean.Import)
 			for _, query := range bean.FormTag {
-				queryId = append(queryId, fmt.Sprintf("in.get%s()", stringx.From(query).ToCamel()))
+				queryId = append(queryId, fmt.Sprintf("req.get%s()", stringx.From(query).ToCamel()))
 			}
 			queryExpr = bean.GetQuery()
 			showRequestBody = len(bean.JsonTag) > 0
@@ -194,6 +194,7 @@ func getRoute(in map[string]spec.Route, m map[string]*Bean) ([]string, []*Route)
 		})
 	}
 
+	sort.Strings(imports) // 固定排序
 	return imports, list
 }
 
@@ -205,7 +206,7 @@ func parsePath(path string) (string, []string, []string) {
 			id := strings.ReplaceAll(each, ":", "")
 			list = append(list, "{"+id+"}")
 			ids = append(ids, id)
-			idsExpr = append(idsExpr, "in.get"+stringx.From(id).ToCamel()+"()")
+			idsExpr = append(idsExpr, "req.get"+stringx.From(id).ToCamel()+"()")
 			continue
 		}
 
